@@ -13,20 +13,16 @@ dotenv.config();
 
 // ✅ Replace connectDB() with direct connection
 const connectDB = async () => {
-  try {
-    const mongoURI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/smartnotes';
-    mongoose.set('strictQuery', false);
-    
-    await mongoose.connect(mongoURI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    
-    console.log(`✅ MongoDB Connected to: ${mongoURI}`);
-  } catch (error) {
-    console.error('❌ MongoDB connection failed:', error.message);
+ mongoose
+  .connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("✅ Connected to MongoDB Atlas"))
+  .catch((err) => {
+    console.error("❌ MongoDB connection failed:", err.message);
     process.exit(1);
-  }
+  });
 };
 
 // ✅ Connect to database
