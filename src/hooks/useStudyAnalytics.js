@@ -1,65 +1,76 @@
+// useStudyAnalytics.js
 import { useState, useCallback } from 'react';
 import axios from 'axios';
 
 export const useStudyAnalytics = () => {
   const [analytics, setAnalytics] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState(null);
 
-  const startStudySession = useCallback(async (userId, topicId, goals = []) => {
-    try {
-      const response = await axios.post('/api/study/sessions/start', {
-        userId,
-        topicId,
-        goals
-      });
-      return response.data.session;
-    } catch (error) {
-      console.error('Error starting study session:', error);
-      throw error;
-    }
-  }, []);
+  /* JWT header for every request */
+  const authHeader = {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  };
 
-  const endStudySession = useCallback(async (sessionId, metrics = {}) => {
-    try {
-      const response = await axios.post(`/api/study/sessions/${sessionId}/end`, {
-        metrics
-      });
-      return response.data.session;
-    } catch (error) {
-      console.error('Error ending study session:', error);
-      throw error;
-    }
-  }, []);
+  /* ────────── 1. START SESSION ────────── */
+  const startStudySession = useCallback(
+    async (topicId, goals = []) => {
+      const { data } = await axios.post(
+        '/api/study/sessions/start',
+        { topicId, goals },
+        authHeader
+      );
+      return data.session;
+    },
+    []
+  );
 
-  const getAnalytics = useCallback(async (userId, timeframe = 'week') => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await axios.get(`/api/study/analytics/${userId}`, {
-        params: { timeframe }
-      });
-      setAnalytics(response.data);
-      return response.data;
-    } catch (error) {
-      setError(error.message);
-      console.error('Error fetching analytics:', error);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /* ────────── 2. END SESSION ────────── */
+  const endStudySession = useCallback(
+    async (sessionId, metrics = {}) => {
+      const { data } = await axios.post(
+        `/api/study/sessions/${sessionId}/end`,
+        { metrics },
+        authHeader
+      );
+      return data.session;
+    },
+    []
+  );
 
-  const getFlashcardStats = useCallback(async (userId) => {
-    try {
-      const response = await axios.get(`/api/study/flashcards/${userId}/stats`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching flashcard stats:', error);
-      throw error;
-    }
-  }, []);
+  /* ────────── 3. GET AGGREGATE ANALYTICS ────────── */
+  const getAnalytics = useCallback(
+    async (timeframe = 'week') => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data } = await axios.get(
+          '/api/study/analytics',
+          { ...authHeader, params: { timeframe } }
+        );
+        setAnalytics(data);
+        return data;
+      } catch (err) {
+        setError(err.message);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  /* ────────── 4. FLASHCARD STATS ────────── */
+  const getFlashcardStats = useCallback(
+    async () => {
+      const { data } = await axios.get(
+        '/api/study/flashcards/stats',
+        authHeader
+      );
+      return data;
+    },
+    []
+  );
 
   return {
     analytics,
