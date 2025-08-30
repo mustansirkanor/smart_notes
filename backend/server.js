@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose'; // ✅ Add this import
+import authRoutes from './routes/authRoutes.js';
 
 // ✅ Your existing routes
 import topicRoutes from './routes/topicRoutes.js';
@@ -39,7 +40,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/topics', topicRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/ai', aiRoutes);
-
+app.use('/api/auth', authRoutes);
 // ✅ NEW: Add this new route
 app.use('/api/study', studyRoutes);
 
