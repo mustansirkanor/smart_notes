@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-const CreateTopicModal = ({ isOpen, onClose, onTopicCreated, parentTopicId = null }) => {
-  const [formData, setFormData] = useState({
-    title: '',
-    description: ''
-  });
+const CreateTopicModal = ({
+  isOpen,
+  onClose,
+  onTopicCreated,
+  parentTopicId = null   // ← if this prop is passed we’re making a sub-topic
+}) => {
+  const [formData, setFormData] = useState({ title: '', description: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e) => {
@@ -20,18 +22,21 @@ const CreateTopicModal = ({ isOpen, onClose, onTopicCreated, parentTopicId = nul
       return;
     }
 
+    const topicData = {
+      title:       formData.title.trim(),
+      description: formData.description.trim(),
+      parentTopic: parentTopicId,             // ✔ correct key name
+      isSubtopic:  Boolean(parentTopicId)     // ✔ tell API it’s a sub-topic
+    };
+
     setIsSubmitting(true);
     try {
-      const topicData = {
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-        parentTopicId
-      };
-
-      const response = await axios.post('/api/topics', topicData);
-      onTopicCreated(response.data);
+      const res = await axios.post('/api/topics', topicData, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      onTopicCreated(res.data);               // update parent component
       setFormData({ title: '', description: '' });
-    } catch (error) {
+    } catch (err) {
       alert('Failed to create topic');
     } finally {
       setIsSubmitting(false);
@@ -81,11 +86,19 @@ const CreateTopicModal = ({ isOpen, onClose, onTopicCreated, parentTopicId = nul
           </div>
 
           <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onClose}
+            >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-              {isSubmitting ? 'Creating...' : 'Create'}
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Creating…' : 'Create'}
             </button>
           </div>
         </form>

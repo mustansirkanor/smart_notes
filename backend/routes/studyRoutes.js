@@ -1,110 +1,121 @@
 import express from 'express';
+import { authenticateToken } from '../services/authMiddleware.js';
 import studyAnalyticsService from '../services/studyAnalytics.js';
-import StudyPlan from '../models/StudyPlan.js';
-import Flashcard from '../models/Flashcard.js';
+import StudyPlan  from '../models/StudyPlan.js';
+import Flashcard  from '../models/Flashcard.js';
 
 const router = express.Router();
 
-// Study session management
+/* -------------------------------------------------
+   Require a valid JWT for every route in this file
+--------------------------------------------------*/
+router.use(authenticateToken);
+
+/* -------- 1. STUDY-SESSION MANAGEMENT -------- */
 router.post('/sessions/start', async (req, res) => {
   try {
-    const { userId, topicId, goals } = req.body;
-    const session = await studyAnalyticsService.startSession(userId, topicId, goals);
+    const { topicId, goals } = req.body;
+    const session = await studyAnalyticsService.startSession(
+      req.user._id,       // owner
+      topicId,
+      goals
+    );
     res.json({ session });
-  } catch (error) {
-    console.error('Start session error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 router.post('/sessions/:sessionId/end', async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const { metrics } = req.body;
-    const session = await studyAnalyticsService.endSession(sessionId, metrics);
+    const session = await studyAnalyticsService.endSession(
+      sessionId,
+      req.body.metrics,
+      req.user._id          // owner check inside service
+    );
     res.json({ session });
-  } catch (error) {
-    console.error('End session error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Analytics endpoints
-router.get('/analytics/:userId', async (req, res) => {
+/* -------- 2. AGGREGATED ANALYTICS -------- */
+router.get('/analytics', async (req, res) => {
   try {
-    const { userId } = req.params;
-    const { timeframe = 'week' } = req.query;
-    const analytics = await studyAnalyticsService.getAnalytics(userId, timeframe);
+    const timeframe = req.query.timeframe || 'week';
+    const analytics = await studyAnalyticsService.getAnalytics(
+      req.user._id,
+      timeframe
+    );
     res.json(analytics);
-  } catch (error) {
-    console.error('Analytics error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Study plan management
+/* -------- 3. STUDY-PLAN CRUD -------- */
 router.post('/plans', async (req, res) => {
   try {
-    const planData = req.body;
-    const plan = new StudyPlan(planData);
+    const plan = new StudyPlan({ ...req.body, owner: req.user._id });
     await plan.save();
     res.json({ plan });
-  } catch (error) {
-    console.error('Create study plan error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/plans/:userId', async (req, res) => {
+router.get('/plans', async (req, res) => {
   try {
-    const { userId } = req.params;
-    const plans = await StudyPlan.find({ userId, isActive: true })
+    const plans = await StudyPlan
+      .find({ owner: req.user._id, isActive: true })
       .sort({ createdAt: -1 });
     res.json({ plans });
-  } catch (error) {
-    console.error('Get study plans error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 router.put('/plans/:planId', async (req, res) => {
   try {
-    const { planId } = req.params;
-    const updateData = req.body;
-    const plan = await StudyPlan.findByIdAndUpdate(planId, updateData, { new: true });
+    const plan = await StudyPlan.findOneAndUpdate(
+      { _id: req.params.planId, owner: req.user._id },
+      req.body,
+      { new: true }
+    );
     res.json({ plan });
-  } catch (error) {
-    console.error('Update study plan error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Flashcard statistics
-router.get('/flashcards/:userId/stats', async (req, res) => {
+/* -------- 4. FLASHCARD STATISTICS -------- */
+router.get('/flashcards/stats', async (req, res) => {
   try {
-    const { userId } = req.params;
-    
-    const totalCards = await Flashcard.countDocuments({ userId, isActive: true });
-    const dueCards = await Flashcard.countDocuments({ 
-      userId, 
-      isActive: true,
-      'repetitionData.nextReview': { $lte: new Date() }
-    });
-    const masteredCards = await Flashcard.countDocuments({ 
-      userId, 
-      isActive: true,
-      'repetitionData.repetitions': { $gte: 5 }
-    });
+    const owner = req.user._id;
+
+    const [total, due, mastered] = await Promise.all([
+      Flashcard.countDocuments({ owner, isActive: true }),
+      Flashcard.countDocuments({
+        owner,
+        isActive: true,
+        'repetitionData.nextReview': { $lte: new Date() }
+      }),
+      Flashcard.countDocuments({
+        owner,
+        isActive: true,
+        'repetitionData.repetitions': { $gte: 5 }
+      })
+    ]);
 
     res.json({
-      total: totalCards,
-      due: dueCards,
-      mastered: masteredCards,
-      completion: totalCards > 0 ? Math.round((masteredCards / totalCards) * 100) : 0
+      total,
+      due,
+      mastered,
+      completion: total ? Math.round((mastered / total) * 100) : 0
     });
-  } catch (error) {
-    console.error('Flashcard stats error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -1,61 +1,89 @@
 import express from 'express';
-import Note from '../models/Note.js';
+import { authenticateToken } from '../services/authMiddleware.js';
+import Note  from '../models/Note.js';
 import Topic from '../models/Topic.js';
 
 const router = express.Router();
 
-// Get single note
+/* 🔒 Require a valid token for all note routes */
+router.use(authenticateToken);
+
+/* -------------------------------------------------
+   GET  /api/notes/:id   – return ONE note (only if I own it)
+--------------------------------------------------*/
 router.get('/:id', async (req, res) => {
   try {
-    const note = await Note.findById(req.params.id).populate('topic');
+    const note = await Note
+      .findOne({ _id: req.params.id, owner: req.user._id })
+      .populate('topic');
+
     if (!note) return res.status(404).json({ message: 'Note not found' });
     res.json(note);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
-// Create note
+/* -------------------------------------------------
+   POST /api/notes       – create a new note I own
+--------------------------------------------------*/
 router.post('/', async (req, res) => {
   try {
-    const note = new Note(req.body);
+    /* attach owner → logged-in user */
+    const note = new Note({ ...req.body, owner: req.user._id });
     await note.save();
 
-    // Update topic note count
-    const topic = await Topic.findById(note.topic);
-    if (topic) await topic.updateCounts();
+    /* update parent-topic counters for this user */
+    const topic = await Topic.findOne({ _id: note.topic, owner: req.user._id });
+    if (topic) await topic.updateCounts(req.user._id);
 
-    const populatedNote = await Note.findById(note._id).populate('topic');
-    res.status(201).json(populatedNote);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
+    const populated = await Note
+      .findOne({ _id: note._id, owner: req.user._id })
+      .populate('topic');
+
+    res.status(201).json(populated);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 });
 
-// Update note
+/* -------------------------------------------------
+   PUT  /api/notes/:id   – update my note
+--------------------------------------------------*/
 router.put('/:id', async (req, res) => {
   try {
-    const note = await Note.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate('topic');
+    const note = await Note
+      .findOneAndUpdate(
+        { _id: req.params.id, owner: req.user._id },
+        req.body,
+        { new: true }
+      )
+      .populate('topic');
+
     if (!note) return res.status(404).json({ message: 'Note not found' });
     res.json(note);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 });
 
-// Delete note
+/* -------------------------------------------------
+   DELETE /api/notes/:id – delete my note
+--------------------------------------------------*/
 router.delete('/:id', async (req, res) => {
   try {
-    const note = await Note.findByIdAndDelete(req.params.id);
+    const note = await Note
+      .findOneAndDelete({ _id: req.params.id, owner: req.user._id });
+
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
-    // Update topic note count
-    const topic = await Topic.findById(note.topic);
-    if (topic) await topic.updateCounts();
+    /* refresh parent-topic counters */
+    const topic = await Topic.findOne({ _id: note.topic, owner: req.user._id });
+    if (topic) await topic.updateCounts(req.user._id);
 
     res.json({ message: 'Note deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 

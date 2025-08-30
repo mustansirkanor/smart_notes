@@ -1,26 +1,35 @@
 import mongoose from 'mongoose';
 
-const topicSchema = new mongoose.Schema({
+const { Schema } = mongoose;
+
+const topicSchema = new Schema({
+  owner: { type: Schema.Types.ObjectId, ref: 'User', required: true },   // NEW
   title: { type: String, required: true },
   description: String,
   color: { type: String, default: '#00BCD4' },
   noteCount: { type: Number, default: 0 },
   subtopicCount: { type: Number, default: 0 },
-  parentTopic: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic', default: null }, // For subtopics
+  parentTopic: { type: Schema.Types.ObjectId, ref: 'Topic', default: null },
   isSubtopic: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 
-topicSchema.methods.updateCounts = async function () {
-  const Note = mongoose.model('Note');
+/*
+ * Recalculate noteCount and subtopicCount for THIS topic
+ * but only for documents owned by the same user.
+ * Call it like:  await topic.updateCounts(req.user._id);
+ */
+topicSchema.methods.updateCounts = async function (userId) {
+  const Note  = mongoose.model('Note');
   const Topic = mongoose.model('Topic');
 
-  this.noteCount = await Note.countDocuments({ topic: this._id });
-  this.subtopicCount = await Topic.countDocuments({ parentTopic: this._id });
+  // Notes that belong to the same user and this topic
+  this.noteCount = await Note.countDocuments({ topic: this._id, owner: userId });
+
+  // Sub-topics that belong to the same user and have this topic as parent
+  this.subtopicCount = await Topic.countDocuments({ parentTopic: this._id, owner: userId });
 
   return this.save();
 };
 
-const Topic = mongoose.model('Topic', topicSchema);
-
-export default Topic;
+export default mongoose.model('Topic', topicSchema);

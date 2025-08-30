@@ -1,6 +1,7 @@
 import { Schema, model } from 'mongoose';
 
 const noteSchema = new Schema({
+  owner: { type: Schema.Types.ObjectId, ref: 'User', required: true }, 
   title: { type: String, required: true },
   content: { type: String, required: true },
   topic: { type: Schema.Types.ObjectId, ref: 'Topic', required: true },

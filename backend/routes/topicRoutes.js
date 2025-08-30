@@ -1,88 +1,100 @@
 import express from 'express';
+import { authenticateToken } from '../services/authMiddleware.js';
 import Topic from '../models/Topic.js';
-import Note from '../models/Note.js';
+import Note  from '../models/Note.js';
 
 const router = express.Router();
 
-// Get all main topics (not subtopics)
-router.get('/', async (req, res) => {
+/* ------------------------------------------------------------------
+   GET  /api/topics  → all main topics for the logged-in user
+-------------------------------------------------------------------*/
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const topics = await Topic.find({ isSubtopic: false }).sort({ createdAt: -1 });
+    const topics = await Topic
+      .find({ owner: req.user._id, isSubtopic: false })
+      .sort({ createdAt: -1 });
+
     res.json(topics);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
-// Get topic with subtopics and notes
-router.get('/:id', async (req, res) => {
+/* ------------------------------------------------------------------
+   GET  /api/topics/:id  → one topic + its sub-topics + its notes
+-------------------------------------------------------------------*/
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const topic = await Topic.findById(req.params.id);
+    const topic = await Topic.findOne({ _id: req.params.id, owner: req.user._id });
     if (!topic) return res.status(404).json({ message: 'Topic not found' });
 
-    const subtopics = await Topic.find({ parentTopic: req.params.id }).sort({ createdAt: -1 });
-    const notes = await Note.find({ topic: req.params.id }).sort({ createdAt: -1 });
+    const subtopics = await Topic
+      .find({ parentTopic: req.params.id, owner: req.user._id })
+      .sort({ createdAt: -1 });
+
+    const notes = await Note
+      .find({ topic: req.params.id, owner: req.user._id })
+      .sort({ createdAt: -1 });
 
     res.json({ topic, subtopics, notes });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
-// Create topic or subtopic
-router.post('/', async (req, res) => {
+/* ------------------------------------------------------------------
+   POST /api/topics  → create main topic or sub-topic
+-------------------------------------------------------------------*/
+router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { title, description, parentTopicId } = req.body;
+    const { title, description, parentTopic } = req.body;
 
-    const topicData = {
+    const topic = new Topic({
       title,
       description,
-      isSubtopic: !!parentTopicId,
-      parentTopic: parentTopicId || null
-    };
+      owner: req.user._id,                 // 🔑 link to current user
+      isSubtopic: Boolean(parentTopic),
+      parentTopic: parentTopic || null
+    });
 
-    const topic = new Topic(topicData);
     await topic.save();
 
-    // Update parent topic subtopic count if it's a subtopic
-    if (parentTopicId) {
-      const parentTopic = await Topic.findById(parentTopicId);
-      if (parentTopic) await parentTopic.updateCounts();
+    // if it’s a sub-topic update the parent’s counters
+    if (parentTopic) {
+      const parent = await Topic.findOne({ _id: parentTopic, owner: req.user._id });
+      if (parent) await parent.updateCounts(req.user._id);
     }
 
     res.status(201).json(topic);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 });
 
-// Delete topic
-router.delete('/:id', async (req, res) => {
+/* ------------------------------------------------------------------
+   DELETE /api/topics/:id  → delete a topic the user owns
+-------------------------------------------------------------------*/
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const topic = await Topic.findById(req.params.id);
+    const topic = await Topic.findOne({ _id: req.params.id, owner: req.user._id });
     if (!topic) return res.status(404).json({ message: 'Topic not found' });
 
-    // Check for subtopics and notes
-    const subtopicCount = await Topic.countDocuments({ parentTopic: req.params.id });
-    const noteCount = await Note.countDocuments({ topic: req.params.id });
+    // optional safeguard: check for child docs before deleting
+    // const subCount  = await Topic.countDocuments({ parentTopic: topic._id, owner: req.user._id });
+    // const noteCount = await Note. countDocuments({ topic: topic._id,        owner: req.user._id });
+    // if (subCount || noteCount) { … }
 
-    // if (subtopicCount > 0 || noteCount > 0) {
-    //   return res.status(400).json({
-    //     message: `Cannot delete topic with ${subtopicCount} subtopics and ${noteCount} notes`
-    //   });
-    // }
+    await Topic.deleteOne({ _id: req.params.id, owner: req.user._id });
 
-    await Topic.findByIdAndDelete(req.params.id);
-
-    // Update parent topic count if it was a subtopic
+    // update parent counters if it was a sub-topic
     if (topic.parentTopic) {
-      const parentTopic = await Topic.findById(topic.parentTopic);
-      if (parentTopic) await parentTopic.updateCounts();
+      const parent = await Topic.findOne({ _id: topic.parentTopic, owner: req.user._id });
+      if (parent) await parent.updateCounts(req.user._id);
     }
 
     res.json({ message: 'Topic deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
